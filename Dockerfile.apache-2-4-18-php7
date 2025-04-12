@@ -1,0 +1,78 @@
+FROM ubuntu:focal
+
+# Install APT dependencies
+RUN apt update -y ; \
+    DEBIAN_FRONTEND=noninteractive apt install -y autoconf wget libtool-bin \
+    build-essential zlib1g-dev libbz2-dev libreadline-dev libsqlite3-dev \
+    curl git libncursesw5-dev xz-utils tk-dev libxml2-dev libxmlsec1-dev libffi-dev \
+    liblzma-dev php-common libapache2-mod-php php-cli
+
+RUN wget http://launchpadlibrarian.net/468524076/libcrypt1-udeb_4.4.10-10ubuntu4_amd64.udeb
+RUN dpkg -i libcrypt1-udeb_4.4.10-10ubuntu4_amd64.udeb
+RUN wget http://launchpadlibrarian.net/474699079/libc6-udeb_2.31-0ubuntu9_amd64.udeb
+RUN dpkg -i libc6-udeb_2.31-0ubuntu9_amd64.udeb
+RUN wget https://security.ubuntu.com/ubuntu/pool/main/o/openssl1.0/libcrypto1.0.0-udeb_1.0.2n-1ubuntu5.13_amd64.udeb
+RUN dpkg -i libcrypto1.0.0-udeb_1.0.2n-1ubuntu5.13_amd64.udeb
+RUN wget https://security.ubuntu.com/ubuntu/pool/main/o/openssl1.0/libssl1.0.0_1.0.2n-1ubuntu5.13_amd64.deb
+RUN dpkg -i libssl1.0.0_1.0.2n-1ubuntu5.13_amd64.deb
+RUN wget https://security.ubuntu.com/ubuntu/pool/main/o/openssl1.0/libssl1.0-dev_1.0.2n-1ubuntu5.13_amd64.deb
+RUN apt remove -y libssl-dev && dpkg -i libssl1.0-dev_1.0.2n-1ubuntu5.13_amd64.deb
+
+# Install Python 2
+RUN curl -fsSL https://pyenv.run | bash && \
+    echo 'export PYENV_ROOT="/root/.pyenv"' >> ~/.bashrc && \
+    echo '[[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.bashrc && \
+    echo 'eval "$(pyenv init - bash)"' >> ~/.bashrc && \
+    echo 'export PYENV_ROOT="/root/.pyenv"' >> ~/.profile && \
+    echo '[[ -d $PYENV_ROOT/bin ]] && export PATH="$PYENV_ROOT/bin:$PATH"' >> ~/.profile && \
+    echo 'eval "$(pyenv init - bash)"' >> ~/.profile
+
+RUN /root/.pyenv/bin/pyenv install 2 && \
+    /root/.pyenv/bin/pyenv global 2 && \
+    /root/.pyenv/shims/python -m pip install --upgrade pip
+
+# Install APR and APR-Util
+RUN wget https://archive.apache.org/dist/httpd/httpd-2.4.18-deps.tar.gz
+RUN tar -xvzf httpd-2.4.18-deps.tar.gz
+
+WORKDIR /httpd-2.4.18/srclib/apr
+
+ENV PATH="/root/.pyenv/shims:/root/.pyenv/bin:/root/.pyenv/plugins/python-build/bin:/root/.pyenv/plugins/pyenv-virtualenv/bin:${PATH}"
+RUN ./buildconf && \
+    ./configure --prefix=/usr/local/apr && \
+    make && \
+    make install
+
+WORKDIR /httpd-2.4.18/srclib/apr-util
+RUN ./buildconf && \
+    ./configure --prefix=/usr/local/apr-util --with-apr=/usr/local/apr && \
+    make && \
+    make install
+
+# Install PCRE
+WORKDIR /
+RUN wget https://cfhcable.dl.sourceforge.net/project/pcre/pcre/8.45/pcre-8.45.tar.gz
+RUN tar -xvzf pcre-8.45.tar.gz
+
+WORKDIR /pcre-8.45
+RUN ./configure --prefix=/usr/local/pcre && \
+    make && \
+    make install
+
+# Install Apache HTTP Server
+WORKDIR /
+RUN wget https://archive.apache.org/dist/httpd/httpd-2.4.18.tar.gz
+RUN tar -xvzf httpd-2.4.18.tar.gz
+WORKDIR /httpd-2.4.18
+
+RUN a2dismod mpm_worker
+RUN a2enmod mpm_prefork
+RUN ./configure --prefix=/usr/local/apache2 --with-apr=/usr/local/apr \
+    --with-pcre=/usr/local/pcre \
+    --with-apr-util=/usr/local/apr-util --enable-threads --with-mpm=prefork && \
+    make && \
+    make install
+
+WORKDIR /usr/local/apache2
+
+CMD ["/usr/local/apache2/bin/httpd", "-k", "start", "-DFOREGROUND"]
